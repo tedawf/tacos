@@ -7,9 +7,28 @@ from fastapi.testclient import TestClient
 from app.routers import rag
 
 
-def build_client(rag_service):
+class DummyChatLogger:
+    """Keeps tests DB-free while satisfying chat logging API."""
+
+    def __init__(self):
+        self.db = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
+
+    def ensure_chat_id(self, chat_id=None):
+        return chat_id or uuid.uuid4()
+
+    def next_sequence(self, chat_id):
+        return 1
+
+    def log_message(self, **kwargs):
+        return None
+
+
+def build_client(rag_service, chat_logger=None):
     app = FastAPI()
     app.dependency_overrides[rag.get_rag_service] = lambda: rag_service
+    if chat_logger is None:
+        chat_logger = DummyChatLogger()
+    app.dependency_overrides[rag.get_chat_logger] = lambda: chat_logger
     app.include_router(rag.router)
     return TestClient(app)
 
@@ -24,10 +43,13 @@ def test_prompt_requires_messages():
 
 
 def test_prompt_streams_response():
-    async def fake_stream(messages, limit, threshold):
+    async def fake_stream(messages, limit, threshold, relevant_docs=None):
         yield "hello"
 
-    rag_service = SimpleNamespace(stream_chat_response=fake_stream)
+    rag_service = SimpleNamespace(
+        stream_chat_response=fake_stream,
+        get_relevant_documents_with_navigation=lambda query, limit, threshold: [],
+    )
     client = build_client(rag_service)
 
     res = client.post(
@@ -86,9 +108,7 @@ def test_update_portfolio_content_returns_stats():
 
     request = {
         "timestamp": "now",
-        "content": [
-            {"slug": "s", "title": "t", "content": "c", "metadata": {"a": 1}}
-        ],
+        "content": [{"slug": "s", "title": "t", "content": "c", "metadata": {"a": 1}}],
     }
     res = client.post("/update", json=request)
 
