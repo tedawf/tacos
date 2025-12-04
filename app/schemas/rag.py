@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -10,6 +11,7 @@ class ChatMessage(BaseModel):
 
 class PromptRequest(BaseModel):
     messages: List[ChatMessage]
+    chat_id: Optional[UUID] = None
 
     # {
     #   "messages": [

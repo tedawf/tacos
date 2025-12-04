@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from openai import AsyncOpenAI
@@ -102,7 +102,9 @@ class RAGService:
             # Force include navigation content with high priority
             navigation_docs = (
                 self.db.query(self.doc_model)
-                .filter(self.doc_model.doc_metadata.op("->>")("contentType") == "navigation")
+                .filter(
+                    self.doc_model.doc_metadata.op("->>")("contentType") == "navigation"
+                )
                 .all()
             )
 
@@ -130,15 +132,22 @@ class RAGService:
             return self.get_relevant_documents(query, limit, threshold)
 
     async def stream_chat_response(
-        self, messages: List[ChatMessage], limit: int, threshold: float
+        self,
+        messages: List[ChatMessage],
+        limit: int,
+        threshold: float,
+        relevant_docs: Optional[List[DocResult]] = None,
     ):
-        """Streams a chat response, using the retrieval logic to build context."""
+        """
+        Streams a chat response, using the retrieval logic to build context.
+        Accepts pre-fetched relevant_docs to avoid duplicate queries.
+        """
 
         # The last message is always the user's question
         latest_user_question = messages[-1].content
 
         # 1. Retrieve relevant docs using navigation-enhanced search
-        relevant_docs = self.get_relevant_documents_with_navigation(
+        relevant_docs = relevant_docs or self.get_relevant_documents_with_navigation(
             query=latest_user_question, limit=limit, threshold=threshold
         )
 
@@ -235,7 +244,9 @@ class RAGService:
             # Get existing portfolio documents for comparison
             existing_docs = (
                 self.db.query(self.doc_model)
-                .filter(self.doc_model.document_id.like(f"{settings.PORTFOLIO_PREFIX}%"))
+                .filter(
+                    self.doc_model.document_id.like(f"{settings.PORTFOLIO_PREFIX}%")
+                )
                 .all()
             )
 

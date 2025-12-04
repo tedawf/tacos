@@ -14,7 +14,7 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from app.models import couchdb_changes, doc, post_view
+from app.models import couchdb_changes, doc, post_view, chat
 
 target_metadata = Base.metadata
 
