@@ -25,12 +25,16 @@ class RAGService:
         db: Session,
         ai_client: AsyncOpenAI | None = None,
         api_key: str | None = None,
+        chat_model: str | None = None,
         query_expander_service: QueryExpander | None = None,
         embed_text_fn=embed_text,
         content_enhancer_service: ContentEnhancer | None = None,
         doc_model=Doc,
     ):
         self.db = db
+        self.chat_model = chat_model or settings.RAG_CHAT_MODEL
+        if not self.chat_model:
+            raise ValueError("RAG_CHAT_MODEL must be set to use RAGService")
         if ai_client is None:
             key = api_key or settings.OPENAI_API_KEY
             if not key:
@@ -214,7 +218,7 @@ class RAGService:
         # 5. Stream response
         try:
             stream = await self.ai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=self.chat_model,
                 messages=prompt_messages,
                 stream=True,
             )

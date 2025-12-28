@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     TACOS_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
+    # RAG
+    RAG_CHAT_MODEL: str = "gpt-5-mini"
+
     # Knowledge Base
     KB_PREFIX: str = "kb/"
 

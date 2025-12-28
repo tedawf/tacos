@@ -454,7 +454,29 @@ async def test_stream_chat_response_yields_chunks_and_builds_prompt():
 
     assert tokens == ["Hi", " there"]
 
+    assert ai_client.chat.completions.kwargs["model"] == settings.RAG_CHAT_MODEL
     sent = ai_client.chat.completions.kwargs["messages"]
     assert sent[0]["role"] == "system"
     assert "Title: Post 1" in sent[0]["content"]
     assert sent[-1]["content"] == "What's new?"
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_response_uses_override_model():
+    stream = FakeStream(["ok"])
+    ai_client = FakeAIClient(stream)
+    service = RAGService(
+        db=SimpleNamespace(),
+        ai_client=ai_client,
+        chat_model="gpt-test-model",
+        query_expander_service=SimpleNamespace(expand_query=lambda q: q),
+        embed_text_fn=lambda q: [0.0] * 1536,
+        doc_model=FakeDocModel,
+    )
+    service.get_relevant_documents_with_navigation = lambda query, limit, threshold: []
+
+    messages = [ChatMessage(role="user", content="ping")]
+    async for _token in service.stream_chat_response(messages, limit=2, threshold=0.2):
+        pass
+
+    assert ai_client.chat.completions.kwargs["model"] == "gpt-test-model"
