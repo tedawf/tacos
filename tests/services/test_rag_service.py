@@ -455,6 +455,7 @@ async def test_stream_chat_response_yields_chunks_and_builds_prompt():
     assert tokens == ["Hi", " there"]
 
     assert ai_client.chat.completions.kwargs["model"] == settings.RAG_CHAT_MODEL
+    assert ai_client.chat.completions.kwargs["reasoning_effort"] == settings.RAG_REASONING_EFFORT
     sent = ai_client.chat.completions.kwargs["messages"]
     assert sent[0]["role"] == "system"
     assert "Title: Post 1" in sent[0]["content"]
@@ -480,3 +481,24 @@ async def test_stream_chat_response_uses_override_model():
         pass
 
     assert ai_client.chat.completions.kwargs["model"] == "gpt-test-model"
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_response_passes_reasoning_effort():
+    stream = FakeStream(["ok"])
+    ai_client = FakeAIClient(stream)
+    service = RAGService(
+        db=SimpleNamespace(),
+        ai_client=ai_client,
+        reasoning_effort="medium",
+        query_expander_service=SimpleNamespace(expand_query=lambda q: q),
+        embed_text_fn=lambda q: [0.0] * 1536,
+        doc_model=FakeDocModel,
+    )
+    service.get_relevant_documents_with_navigation = lambda query, limit, threshold: []
+
+    messages = [ChatMessage(role="user", content="ping")]
+    async for _token in service.stream_chat_response(messages, limit=2, threshold=0.2):
+        pass
+
+    assert ai_client.chat.completions.kwargs["reasoning_effort"] == "medium"

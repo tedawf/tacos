@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -26,6 +27,7 @@ class RAGService:
         ai_client: AsyncOpenAI | None = None,
         api_key: str | None = None,
         chat_model: str | None = None,
+        reasoning_effort: str | None = None,
         query_expander_service: QueryExpander | None = None,
         embed_text_fn=embed_text,
         content_enhancer_service: ContentEnhancer | None = None,
@@ -35,6 +37,7 @@ class RAGService:
         self.chat_model = chat_model or settings.RAG_CHAT_MODEL
         if not self.chat_model:
             raise ValueError("RAG_CHAT_MODEL must be set to use RAGService")
+        self.reasoning_effort = reasoning_effort or settings.RAG_REASONING_EFFORT
         if ai_client is None:
             key = api_key or settings.OPENAI_API_KEY
             if not key:
@@ -196,19 +199,12 @@ class RAGService:
         logger.debug(f"Context for RAG:\n{context_text}")
 
         # 3. Prepare system prompt
-        system_prompt = (
-            f"You are Ted Support, a helpful AI chatbot for Ted's developer portfolio.\n"
-            f"The current year is {datetime.now().year}.\n"
-            "Use the following context from Ted's portfolio content, blog posts and personal knowledge base to answer the user's question:\n\n"
-            f"{context_text}\n\n"
-            "CRITICAL INSTRUCTIONS - FOLLOW EXACTLY:\n"
-            "- Answer the user's question directly and specifically using ONLY information from the provided context.\n"
-            "- Keep responses concise (2-4 sentences) and actionable.\n"
-            "- ALWAYS include the exact URL from the 'URL' field when referencing any page - NEVER use relative paths.\n"
-            "- When discussing projects, highlight relevant technologies and specific accomplishments mentioned in the context.\n"
-            "- STRICTLY NO HALLUCINATION: If information isn't in the context, say 'I don't have enough information about that in my knowledge base.'\n"
-            "- Navigation content is always available - use it to guide users to relevant site sections and provide clear URLs in markdown format."
+        prompt_template = Path(settings.RAG_SYSTEM_PROMPT_PATH).read_text(
+            encoding="utf-8"
         )
+        system_prompt = prompt_template.replace(
+            "{year}", str(datetime.now().year)
+        ).replace("{context}", context_text)
 
         # 4. Build messages with existing chat history
         prompt_messages = [{"role": "system", "content": system_prompt}]
@@ -217,11 +213,19 @@ class RAGService:
 
         # 5. Stream response
         try:
-            stream = await self.ai_client.chat.completions.create(
-                model=self.chat_model,
-                messages=prompt_messages,
-                stream=True,
-            )
+            if self.reasoning_effort:
+                stream = await self.ai_client.chat.completions.create(
+                    model=self.chat_model,
+                    messages=prompt_messages,
+                    stream=True,
+                    reasoning_effort=self.reasoning_effort,
+                )
+            else:
+                stream = await self.ai_client.chat.completions.create(
+                    model=self.chat_model,
+                    messages=prompt_messages,
+                    stream=True,
+                )
             async for chunk in stream:
                 content = chunk.choices[0].delta.content
                 if content is not None:

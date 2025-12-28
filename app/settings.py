@@ -1,10 +1,17 @@
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def choose_env_file() -> str:
     return ".env.local" if Path(".env.local").exists() else ".env"
+
+
+DEFAULT_RAG_SYSTEM_PROMPT_PATH = str(
+    (Path(__file__).resolve().parent / "prompts" / "rag_system_prompt.md")
+)
 
 
 class Settings(BaseSettings):
@@ -43,6 +50,8 @@ class Settings(BaseSettings):
 
     # RAG
     RAG_CHAT_MODEL: str = "gpt-5-mini"
+    RAG_REASONING_EFFORT: Literal["minimal", "low", "medium", "high"] | None = "low"
+    RAG_SYSTEM_PROMPT_PATH: str = DEFAULT_RAG_SYSTEM_PROMPT_PATH
 
     # Knowledge Base
     KB_PREFIX: str = "kb/"
