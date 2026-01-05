@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,6 +39,10 @@ class Settings(BaseSettings):
     BLOG_PREFIX: str = "blog/"
     BLOG_API_URL: str = "http://localhost:8000"
     BASE_BLOG_URL: str = "http://localhost:3000"
+
+    # On-demand revalidation for posts (e.g., Next.js route handler)
+    REVALIDATE_POSTS_URL: str = "http://localhost:3000/api/revalidate"
+    REVALIDATE_SECRET: str = ""
 
     # Logging
     LOG_LEVEL: str = "INFO"

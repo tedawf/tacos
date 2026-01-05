@@ -11,6 +11,7 @@ from app.db.postgres.base import SessionLocal
 from app.models.doc import Doc
 from app.repos.last_seq_repo import LastSeqRepo
 from app.services.docs_ingester import ingest_doc
+from app.services.revalidate_posts import RevalidatePostsService
 from app.settings import Settings, settings
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,14 @@ def listen_changes():
 
     while not STOP_LISTENER_EVENT.is_set():
         try:
+            revalidate_service = RevalidatePostsService.from_settings(settings)
+            if settings.REVALIDATE_SECRET:
+                logger.info(
+                    "Post revalidation enabled url=%s",
+                    settings.REVALIDATE_POSTS_URL,
+                )
+            else:
+                logger.info("Post revalidation disabled (REVALIDATE_SECRET not set)")
             couch_db, couch_parser = get_couch()
             with SessionLocal() as db_session:
                 seq_repo = LastSeqRepo(db_session)
@@ -58,7 +67,12 @@ def listen_changes():
                             change = json.loads(line)
                             last_seq = change.get("seq", last_seq)
                             seq_repo.update_last_seq(last_seq)
-                            process_change(change, db_session, couch_parser)
+                            process_change(
+                                change,
+                                db_session,
+                                couch_parser,
+                                revalidate_posts_fn=revalidate_service.revalidate_posts,
+                            )
                         except json.JSONDecodeError:
                             logger.warning(f"Skipping invalid JSON line: {line}")
                         except Exception as e:
@@ -82,6 +96,7 @@ def process_change(
     parser,
     *,
     ingest_fn: Callable = ingest_doc,
+    revalidate_posts_fn: Callable[[str | None], bool] | None = None,
     settings_obj: Settings = settings,
     doc_model=Doc,
 ):
@@ -95,12 +110,16 @@ def process_change(
     if doc.get("deleted", False):
         # Delete from Postgres
         deleted_count = (
-            db_session.query(doc_model)
-            .filter(doc_model.document_id == doc_id)
-            .delete()
+            db_session.query(doc_model).filter(doc_model.document_id == doc_id).delete()
         )
         db_session.commit()
         logger.info(f"Deleted {deleted_count} chunks for doc {doc_id}")
+
+        if revalidate_posts_fn is not None:
+            candidate = (doc.get("path") or doc.get("_id") or "").strip()
+            if candidate.startswith(settings_obj.BLOG_PREFIX):
+                slug = _extract_blog_slug(doc, settings_obj=settings_obj)
+                revalidate_posts_fn(slug)
         return
 
     if doc.get("type") != "plain":
@@ -116,9 +135,37 @@ def process_change(
         return
 
     try:
-        ingest_fn(db_session, doc, parser=parser)
+        ingested_slug = ingest_fn(db_session, doc, parser=parser)
     except Exception as e:
         logger.error(f"Failed to ingest doc {doc['_id']}: {e}")
+        return
+
+    if revalidate_posts_fn is None:
+        return
+
+    slug = _extract_blog_slug(
+        doc, settings_obj=settings_obj, ingested_slug=ingested_slug
+    )
+    if slug is not None:
+        revalidate_posts_fn(slug)
+
+
+def _extract_blog_slug(
+    doc: dict,
+    *,
+    settings_obj: Settings,
+    ingested_slug: str | None = None,
+) -> str | None:
+    candidate = (ingested_slug or "").strip() or (
+        doc.get("path") or doc.get("_id") or ""
+    )
+    if not candidate.startswith(settings_obj.BLOG_PREFIX):
+        return None
+    slug = candidate.removeprefix(settings_obj.BLOG_PREFIX)
+    if slug.endswith(".md"):
+        slug = slug[:-3]
+    slug = slug.strip()
+    return slug or None
 
 
 def start_listener():

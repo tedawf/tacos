@@ -71,5 +71,73 @@ def test_process_change_ingests_plain_doc():
         ingest_fn=lambda db, doc, parser: ingest_calls.append((db, doc, parser)),
     )
 
-    assert ingest_calls == [(session, {"_id": "blog/keep.md", "type": "plain", "path": "blog/keep.md"}, "parser")]
+    assert ingest_calls == [
+        (
+            session,
+            {"_id": "blog/keep.md", "type": "plain", "path": "blog/keep.md"},
+            "parser",
+        )
+    ]
     assert session.committed is False
+
+
+def test_process_change_triggers_revalidation_for_blog_docs():
+    session = FakeSession()
+    revalidated = []
+    custom_settings = Settings(BLOG_PREFIX="blog/", KB_PREFIX="kb/")
+
+    process_change(
+        {
+            "doc": {
+                "_id": "blog/keep.md",
+                "type": "plain",
+                "path": "blog/keep.md",
+            }
+        },
+        session,
+        parser="parser",
+        ingest_fn=lambda *_args, **_kwargs: None,
+        revalidate_posts_fn=lambda slug: revalidated.append(slug),
+        settings_obj=custom_settings,
+    )
+
+    assert revalidated == ["keep"]
+
+
+def test_process_change_does_not_revalidate_for_kb_docs():
+    session = FakeSession()
+    revalidated = []
+    custom_settings = Settings(BLOG_PREFIX="blog/", KB_PREFIX="kb/")
+
+    process_change(
+        {
+            "doc": {
+                "_id": "kb/keep.md",
+                "type": "plain",
+                "path": "kb/keep.md",
+            }
+        },
+        session,
+        parser="parser",
+        ingest_fn=lambda *_args, **_kwargs: None,
+        revalidate_posts_fn=lambda slug: revalidated.append(slug),
+        settings_obj=custom_settings,
+    )
+
+    assert revalidated == []
+
+
+def test_process_change_revalidates_on_blog_deletes():
+    session = FakeSession()
+    revalidated = []
+    custom_settings = Settings(BLOG_PREFIX="blog/", KB_PREFIX="kb/")
+
+    process_change(
+        {"doc": {"_id": "blog/gone.md", "deleted": True}},
+        session,
+        parser="parser",
+        revalidate_posts_fn=lambda slug: revalidated.append(slug),
+        settings_obj=custom_settings,
+    )
+
+    assert revalidated == ["gone"]
